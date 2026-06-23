@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,12 +32,15 @@ type Config struct {
 type GeminiKey struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
+	Remark    string `json:"remark,omitempty"`
 	Key       string `json:"key"`
 	Proxy     string `json:"proxy"`
 	LastOK    *bool  `json:"last_ok,omitempty"`
 	LastTest  string `json:"last_test,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
+
+const adminSessionCookie = "gemini_router_admin_key"
 
 type Store struct {
 	mu     sync.RWMutex
@@ -105,7 +109,7 @@ func (s *Store) UpdateProject(apiKey, projectProxy string) error {
 	return s.saveLocked()
 }
 
-func (s *Store) AddKeys(lines []string, proxyURL string) error {
+func (s *Store) AddKeys(lines []string, proxyURL, remark string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, line := range lines {
@@ -113,7 +117,7 @@ func (s *Store) AddKeys(lines []string, proxyURL string) error {
 		if key == "" {
 			continue
 		}
-		s.config.GeminiKeys = append(s.config.GeminiKeys, GeminiKey{ID: s.nextID, Name: fmt.Sprintf("key-%d", s.nextID), Key: key, Proxy: strings.TrimSpace(proxyURL)})
+		s.config.GeminiKeys = append(s.config.GeminiKeys, GeminiKey{ID: s.nextID, Name: fmt.Sprintf("key-%d", s.nextID), Remark: strings.TrimSpace(remark), Key: key, Proxy: strings.TrimSpace(proxyURL)})
 		s.nextID++
 	}
 	return s.saveLocked()
@@ -132,13 +136,14 @@ func (s *Store) DeleteKey(id int) error {
 	return s.saveLocked()
 }
 
-func (s *Store) UpdateKey(id int, name, proxyURL string) error {
+func (s *Store) UpdateKey(id int, name, proxyURL, remark string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.config.GeminiKeys {
 		if s.config.GeminiKeys[i].ID == id {
 			s.config.GeminiKeys[i].Name = strings.TrimSpace(name)
 			s.config.GeminiKeys[i].Proxy = strings.TrimSpace(proxyURL)
+			s.config.GeminiKeys[i].Remark = strings.TrimSpace(remark)
 			break
 		}
 	}
@@ -214,12 +219,55 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", app.handleAdmin)
 	mux.HandleFunc("/admin", app.handleAdmin)
+	mux.HandleFunc("/login", app.handleLogin)
+	mux.HandleFunc("/logout", app.handleLogout)
 	mux.HandleFunc("/admin/", app.handleAdminAction)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("/v1/", app.handleProxy)
 	mux.HandleFunc("/v1beta/", app.handleProxy)
 	log.Printf("gemini-router listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
+	cfg := a.store.Snapshot()
+	if cfg.ProjectAPIKey == "" {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		data := struct{ Msg string }{Msg: r.URL.Query().Get("msg")}
+		if err := template.Must(template.New("login").Parse(loginHTML)).Execute(w, data); err != nil {
+			log.Printf("render login: %v", err)
+		}
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("project_api_key") != cfg.ProjectAPIKey {
+		http.Redirect(w, r, "/login?msg=invalid", http.StatusSeeOther)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminSessionCookie,
+		Value:    adminSessionValue(cfg.ProjectAPIKey),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: adminSessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -257,13 +305,13 @@ func (a *App) handleAdminAction(w http.ResponseWriter, r *http.Request) {
 	case "/admin/project":
 		err = a.store.UpdateProject(r.FormValue("project_api_key"), r.FormValue("project_proxy"))
 	case "/admin/keys/add":
-		err = a.store.AddKeys(strings.Split(r.FormValue("keys"), "\n"), r.FormValue("proxy"))
+		err = a.store.AddKeys(strings.Split(r.FormValue("keys"), "\n"), r.FormValue("proxy"), r.FormValue("remark"))
 	case "/admin/keys/delete":
 		id, _ := strconv.Atoi(r.FormValue("id"))
 		err = a.store.DeleteKey(id)
 	case "/admin/keys/update":
 		id, _ := strconv.Atoi(r.FormValue("id"))
-		err = a.store.UpdateKey(id, r.FormValue("name"), r.FormValue("proxy"))
+		err = a.store.UpdateKey(id, r.FormValue("name"), r.FormValue("proxy"), r.FormValue("remark"))
 	case "/admin/keys/test":
 		id, _ := strconv.Atoi(r.FormValue("id"))
 		err = a.testAndStoreKey(r.Context(), id)
@@ -329,6 +377,10 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
+func adminSessionValue(projectAPIKey string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(projectAPIKey))
+}
+
 func (a *App) authorizeProxy(w http.ResponseWriter, r *http.Request) bool {
 	cfg := a.store.Snapshot()
 	if cfg.ProjectAPIKey == "" {
@@ -350,10 +402,13 @@ func (a *App) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if cfg.ProjectAPIKey == "" {
 		return true
 	}
-	if r.URL.Query().Get("admin_key") == cfg.ProjectAPIKey || r.Header.Get("X-API-Key") == cfg.ProjectAPIKey {
+	if cookie, err := r.Cookie(adminSessionCookie); err == nil && cookie.Value == adminSessionValue(cfg.ProjectAPIKey) {
 		return true
 	}
-	http.Error(w, "unauthorized: append ?admin_key=YOUR_PROJECT_API_KEY or send X-API-Key", http.StatusUnauthorized)
+	if r.Header.Get("X-API-Key") == cfg.ProjectAPIKey {
+		return true
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 	return false
 }
 
@@ -615,10 +670,11 @@ const adminHTML = `<!doctype html>
 </head>
 <body><main>
   <h1>Gemini Router 管理</h1>
+  <p><a href="/logout">退出登录</a></p>
   {{if .Msg}}<p class="msg">{{.Msg}}</p>{{end}}
   <section>
     <h2>项目配置</h2>
-    <p class="muted">项目 API Key 用于访问代理接口，也可作为管理页口令。留空表示不鉴权。</p>
+    <p class="muted">项目 API Key 用于访问代理接口，也用于登录管理页。留空表示不鉴权。</p>
     <form method="post" action="/admin/project">
       <label>项目 API Key</label>
       <input name="project_api_key" value="{{.Config.ProjectAPIKey}}" placeholder="例如 my-router-secret">
@@ -633,6 +689,8 @@ const adminHTML = `<!doctype html>
     <form method="post" action="/admin/keys/add">
       <label>Gemini API Key（每行一个，支持批量添加）</label>
       <textarea name="keys" placeholder="AIza...&#10;AIza..."></textarea>
+      <label>这些 Key 的备注（可选）</label>
+      <input name="remark" placeholder="例如 生产环境、备用 Key、来源账号">
       <label>这些 Key 的单独 SOCKS5 代理（可选）</label>
       <input name="proxy" placeholder="socks5://user:pass@host:1080">
       <button>添加</button>
@@ -643,7 +701,7 @@ const adminHTML = `<!doctype html>
     <h2>Gemini Key 管理</h2>
     <form method="post" action="/admin/keys/test-all"><button class="secondary">测试全部 Key</button></form>
     <table>
-      <thead><tr><th>ID</th><th>名称</th><th>Key</th><th>SOCKS5 代理</th><th>测试状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>ID</th><th>名称</th><th>Key</th><th>备注</th><th>SOCKS5 代理</th><th>测试状态</th><th>操作</th></tr></thead>
       <tbody>
       {{range .Config.GeminiKeys}}
       <tr>
@@ -654,6 +712,7 @@ const adminHTML = `<!doctype html>
             <input name="name" value="{{.Name}}">
         </td>
         <td><code>{{mask .Key}}</code></td>
+        <td><input name="remark" value="{{.Remark}}" placeholder="可填写用途或来源"></td>
         <td><input name="proxy" value="{{.Proxy}}" placeholder="留空使用项目默认代理"></td>
         <td>{{testStatus .}}</td>
         <td class="row-actions">
@@ -664,7 +723,7 @@ const adminHTML = `<!doctype html>
         </td>
       </tr>
       {{else}}
-      <tr><td colspan="6">暂无 Gemini Key</td></tr>
+      <tr><td colspan="7">暂无 Gemini Key</td></tr>
       {{end}}
       </tbody>
     </table>
@@ -675,4 +734,31 @@ const adminHTML = `<!doctype html>
     <pre><code>curl -H 'X-API-Key: {{.Config.ProjectAPIKey}}' \
   http://localhost:8080/v1beta/models</code></pre>
   </section>
+</main></body></html>`
+
+const loginHTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gemini Router 登录</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f7f7fb; color: #1f2937; }
+    main { width: min(92vw, 420px); background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px #0001; }
+    label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: .65rem; border: 1px solid #d1d5db; border-radius: 8px; }
+    button { width: 100%; background: #2563eb; color: white; border: 0; padding: .7rem .9rem; border-radius: 8px; cursor: pointer; margin-top: 1rem; }
+    .msg { color: #dc2626; font-weight: 600; }
+    .muted { color: #6b7280; font-size: .92rem; }
+  </style>
+</head>
+<body><main>
+  <h1>Gemini Router 登录</h1>
+  <p class="muted">请输入项目 API Key 进入管理页面。</p>
+  {{if .Msg}}<p class="msg">项目 API Key 不正确，请重试。</p>{{end}}
+  <form method="post" action="/login">
+    <label>项目 API Key</label>
+    <input type="password" name="project_api_key" autocomplete="current-password" autofocus required>
+    <button>登录</button>
+  </form>
 </main></body></html>`
