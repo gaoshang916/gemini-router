@@ -109,3 +109,30 @@ func TestStorePersistsGeminiKeyRemark(t *testing.T) {
 		t.Fatalf("Remark after update = %q, want backup key", got)
 	}
 }
+
+func TestAdminSessionValueDoesNotExposeProjectAPIKey(t *testing.T) {
+	secret := "secret"
+	if got := adminSessionValue(secret); got == "c2VjcmV0" || strings.Contains(got, secret) {
+		t.Fatalf("adminSessionValue(%q) = %q, want opaque token", secret, got)
+	}
+}
+
+func TestRemoveHopByHopHeaders(t *testing.T) {
+	h := http.Header{}
+	h.Set("Connection", "Upgrade, X-Debug")
+	h.Set("Upgrade", "websocket")
+	h.Set("X-Debug", "remove-me")
+	h.Set("Proxy-Authorization", "secret")
+	h.Set("X-Keep", "keep-me")
+
+	removeHopByHopHeaders(h)
+
+	for _, name := range []string{"Connection", "Upgrade", "X-Debug", "Proxy-Authorization"} {
+		if got := h.Get(name); got != "" {
+			t.Fatalf("%s = %q, want removed", name, got)
+		}
+	}
+	if got := h.Get("X-Keep"); got != "keep-me" {
+		t.Fatalf("X-Keep = %q, want keep-me", got)
+	}
+}

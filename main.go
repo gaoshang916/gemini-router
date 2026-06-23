@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -251,7 +254,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if r.FormValue("project_api_key") != cfg.ProjectAPIKey {
+	if !constantTimeEqual(r.FormValue("project_api_key"), cfg.ProjectAPIKey) {
 		http.Redirect(w, r, "/login?msg=invalid", http.StatusSeeOther)
 		return
 	}
@@ -355,6 +358,7 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyHeaders(req.Header, r.Header)
+	removeHopByHopHeaders(req.Header)
 	req.Header.Del("Host")
 	req.Header.Del("Authorization")
 	req.Header.Del("X-API-Key")
@@ -373,13 +377,23 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	copyHeaders(w.Header(), resp.Header)
+	removeHopByHopHeaders(w.Header())
 	w.Header().Set("X-Gemini-Router-Key", key.Name)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }
 
 func adminSessionValue(projectAPIKey string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(projectAPIKey))
+	mac := hmac.New(sha256.New, []byte(projectAPIKey))
+	_, _ = mac.Write([]byte("gemini-router-admin-session"))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func constantTimeEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func projectAPIKeyFromRequest(r *http.Request) string {
@@ -397,7 +411,7 @@ func (a *App) authorizeProxy(w http.ResponseWriter, r *http.Request) bool {
 	if cfg.ProjectAPIKey == "" {
 		return true
 	}
-	if projectAPIKeyFromRequest(r) != cfg.ProjectAPIKey {
+	if !constantTimeEqual(projectAPIKeyFromRequest(r), cfg.ProjectAPIKey) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return false
 	}
@@ -409,10 +423,10 @@ func (a *App) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if cfg.ProjectAPIKey == "" {
 		return true
 	}
-	if cookie, err := r.Cookie(adminSessionCookie); err == nil && cookie.Value == adminSessionValue(cfg.ProjectAPIKey) {
+	if cookie, err := r.Cookie(adminSessionCookie); err == nil && constantTimeEqual(cookie.Value, adminSessionValue(cfg.ProjectAPIKey)) {
 		return true
 	}
-	if r.Header.Get("X-API-Key") == cfg.ProjectAPIKey {
+	if constantTimeEqual(r.Header.Get("X-API-Key"), cfg.ProjectAPIKey) {
 		return true
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -624,6 +638,28 @@ func copyHeaders(dst, src http.Header) {
 		for _, v := range values {
 			dst.Add(k, v)
 		}
+	}
+}
+
+func removeHopByHopHeaders(h http.Header) {
+	for _, header := range h.Values("Connection") {
+		for _, name := range strings.Split(header, ",") {
+			if name = strings.TrimSpace(name); name != "" {
+				h.Del(name)
+			}
+		}
+	}
+	for _, name := range []string{
+		"Connection",
+		"Keep-Alive",
+		"Proxy-Authenticate",
+		"Proxy-Authorization",
+		"TE",
+		"Trailer",
+		"Transfer-Encoding",
+		"Upgrade",
+	} {
+		h.Del(name)
 	}
 }
 
