@@ -29,6 +29,7 @@ const defaultGeminiEndpoint = "https://generativelanguage.googleapis.com"
 type Config struct {
 	ProjectAPIKey string      `json:"project_api_key"`
 	ProjectProxy  string      `json:"project_proxy"`
+	AutoRetry     int         `json:"auto_retry"`
 	GeminiKeys    []GeminiKey `json:"gemini_keys"`
 }
 
@@ -104,11 +105,12 @@ func (s *Store) Snapshot() Config {
 	return cfg
 }
 
-func (s *Store) UpdateProject(apiKey, projectProxy string) error {
+func (s *Store) UpdateProject(apiKey, projectProxy string, autoRetry int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config.ProjectAPIKey = strings.TrimSpace(apiKey)
 	s.config.ProjectProxy = strings.TrimSpace(projectProxy)
+	s.config.AutoRetry = clampAutoRetry(autoRetry)
 	return s.saveLocked()
 }
 
@@ -306,7 +308,8 @@ func (a *App) handleAdminAction(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch r.URL.Path {
 	case "/admin/project":
-		err = a.store.UpdateProject(r.FormValue("project_api_key"), r.FormValue("project_proxy"))
+		autoRetry, _ := strconv.Atoi(r.FormValue("auto_retry"))
+		err = a.store.UpdateProject(r.FormValue("project_api_key"), r.FormValue("project_proxy"), autoRetry)
 	case "/admin/keys/add":
 		err = a.store.AddKeys(strings.Split(r.FormValue("keys"), "\n"), r.FormValue("proxy"), r.FormValue("remark"))
 	case "/admin/keys/delete":
@@ -335,15 +338,59 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeProxy(w, r) {
 		return
 	}
-	key, proxyURL, ok := a.store.NextKey()
-	if !ok {
-		http.Error(w, "no gemini api key configured", http.StatusServiceUnavailable)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	cfg := a.store.Snapshot()
+	maxAttempts := clampAutoRetry(cfg.AutoRetry) + 1
+	if len(cfg.GeminiKeys) > 0 && maxAttempts > len(cfg.GeminiKeys) {
+		maxAttempts = len(cfg.GeminiKeys)
+	}
+
+	var lastErr error
+	var lastStatus int
+	var tried []string
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		key, proxyURL, ok := a.store.NextKey()
+		if !ok {
+			http.Error(w, "no gemini api key configured", http.StatusServiceUnavailable)
+			return
+		}
+		tried = append(tried, key.Name)
+		resp, err := a.forwardProxyRequest(r, body, key, proxyURL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode >= http.StatusBadRequest && attempt+1 < maxAttempts {
+			lastStatus = resp.StatusCode
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			continue
+		}
+		defer resp.Body.Close()
+		copyHeaders(w.Header(), resp.Header)
+		removeHopByHopHeaders(w.Header())
+		w.Header().Set("X-Gemini-Router-Key", key.Name)
+		w.Header().Set("X-Gemini-Router-Attempts", strconv.Itoa(attempt+1))
+		w.Header().Set("X-Gemini-Router-Tried-Keys", strings.Join(tried, ","))
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+	if lastErr != nil {
+		http.Error(w, lastErr.Error(), http.StatusBadGateway)
+		return
+	}
+	http.Error(w, fmt.Sprintf("gemini api request failed after retries; last status: %d", lastStatus), http.StatusBadGateway)
+}
+
+func (a *App) forwardProxyRequest(r *http.Request, body []byte, key GeminiKey, proxyURL string) (*http.Response, error) {
 	target, err := url.Parse(a.geminiEndpoint + r.URL.Path)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	target.RawQuery = r.URL.Query().Encode()
 	q := target.Query()
@@ -352,10 +399,9 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), a.requestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), r.Body)
+	req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	copyHeaders(req.Header, r.Header)
 	removeHopByHopHeaders(req.Header)
@@ -367,20 +413,19 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	client, err := httpClient(proxyURL, a.requestTimeout)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+	return client.Do(req)
+}
+
+func clampAutoRetry(n int) int {
+	if n < 0 {
+		return 0
 	}
-	defer resp.Body.Close()
-	copyHeaders(w.Header(), resp.Header)
-	removeHopByHopHeaders(w.Header())
-	w.Header().Set("X-Gemini-Router-Key", key.Name)
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	if n > 5 {
+		return 5
+	}
+	return n
 }
 
 func adminSessionValue(projectAPIKey string) string {
@@ -723,6 +768,9 @@ const adminHTML = `<!doctype html>
       <input name="project_api_key" value="{{.Config.ProjectAPIKey}}" placeholder="例如 my-router-secret">
       <label>项目默认 SOCKS5 代理</label>
       <input name="project_proxy" value="{{.Config.ProjectProxy}}" placeholder="socks5://127.0.0.1:1080">
+      <label>官方 API 出错自动重试次数</label>
+      <input type="number" name="auto_retry" value="{{.Config.AutoRetry}}" min="0" max="5" step="1">
+      <p class="muted">默认 0，范围 0-5；每次重试会自动切换到下一个可用 Gemini Key。</p>
       <button>保存项目配置</button>
     </form>
   </section>
