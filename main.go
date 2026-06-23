@@ -358,6 +358,7 @@ func (a *App) handleProxy(w http.ResponseWriter, r *http.Request) {
 	req.Header.Del("Host")
 	req.Header.Del("Authorization")
 	req.Header.Del("X-API-Key")
+	req.Header.Del("x-goog-api-key")
 	req.Host = target.Host
 
 	client, err := httpClient(proxyURL, a.requestTimeout)
@@ -381,16 +382,22 @@ func adminSessionValue(projectAPIKey string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(projectAPIKey))
 }
 
+func projectAPIKeyFromRequest(r *http.Request) string {
+	if got := r.Header.Get("X-API-Key"); got != "" {
+		return got
+	}
+	if got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); got != "" {
+		return got
+	}
+	return r.Header.Get("x-goog-api-key")
+}
+
 func (a *App) authorizeProxy(w http.ResponseWriter, r *http.Request) bool {
 	cfg := a.store.Snapshot()
 	if cfg.ProjectAPIKey == "" {
 		return true
 	}
-	got := r.Header.Get("X-API-Key")
-	if got == "" {
-		got = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	}
-	if got != cfg.ProjectAPIKey {
+	if projectAPIKeyFromRequest(r) != cfg.ProjectAPIKey {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return false
 	}
