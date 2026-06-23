@@ -2,12 +2,14 @@ package main
 
 import (
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestApp(t *testing.T, projectAPIKey string) *App {
@@ -16,11 +18,13 @@ func newTestApp(t *testing.T, projectAPIKey string) *App {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	if err := store.UpdateProject(projectAPIKey, ""); err != nil {
+	if err := store.UpdateProject(projectAPIKey, "", 0); err != nil {
 		t.Fatalf("UpdateProject: %v", err)
 	}
 	return &App{
-		store: store,
+		store:          store,
+		geminiEndpoint: "http://127.0.0.1",
+		requestTimeout: 5 * time.Second,
 		adminTemplate: template.Must(template.New("admin").Funcs(template.FuncMap{
 			"mask":       mask,
 			"testStatus": testStatus,
@@ -107,6 +111,69 @@ func TestStorePersistsGeminiKeyRemark(t *testing.T) {
 	cfg = store.Snapshot()
 	if got := cfg.GeminiKeys[0].Remark; got != "backup key" {
 		t.Fatalf("Remark after update = %q, want backup key", got)
+	}
+}
+
+func TestStorePersistsAutoRetryWithClamp(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.UpdateProject("secret", "", 7); err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+	if got := store.Snapshot().AutoRetry; got != 5 {
+		t.Fatalf("AutoRetry = %d, want 5", got)
+	}
+	if err := store.UpdateProject("secret", "", -1); err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+	if got := store.Snapshot().AutoRetry; got != 0 {
+		t.Fatalf("AutoRetry = %d, want 0", got)
+	}
+}
+
+func TestProxyRetriesWithNextKeyOnAPIError(t *testing.T) {
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		seen = append(seen, key)
+		if key == "bad-key" {
+			http.Error(w, "bad key", http.StatusTooManyRequests)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("X-Upstream", "ok")
+		_, _ = w.Write([]byte("key=" + key + ";body=" + string(body)))
+	}))
+	defer upstream.Close()
+
+	app := newTestApp(t, "secret")
+	app.geminiEndpoint = upstream.URL
+	if err := app.store.UpdateProject("secret", "", 1); err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+	if err := app.store.AddKeys([]string{"bad-key", "good-key"}, "", ""); err != nil {
+		t.Fatalf("AddKeys: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models:generateContent", strings.NewReader("payload"))
+	req.Header.Set("X-API-Key", "secret")
+	rr := httptest.NewRecorder()
+
+	app.handleProxy(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Body.String(); got != "key=good-key;body=payload" {
+		t.Fatalf("body = %q, want successful retry body", got)
+	}
+	if strings.Join(seen, ",") != "bad-key,good-key" {
+		t.Fatalf("seen keys = %#v, want bad-key then good-key", seen)
+	}
+	if got := rr.Header().Get("X-Gemini-Router-Attempts"); got != "2" {
+		t.Fatalf("attempts header = %q, want 2", got)
 	}
 }
 
