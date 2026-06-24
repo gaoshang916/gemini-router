@@ -1009,250 +1009,479 @@ func mask(s string) string {
 	return s[:4] + strings.Repeat("*", len(s)-8) + s[len(s)-4:]
 }
 
-const adminHTML = `<!doctype html>
+const adminHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gemini Router 管理</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini Router</title>
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
   <style>
-    :root { color-scheme: light; --bg: #eef2ff; --card: #ffffff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --primary: #2563eb; --primary-dark: #1d4ed8; --danger: #dc2626; --success: #16a34a; --shadow: 0 18px 45px #1e293b14; }
-    * { box-sizing: border-box; }
-    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; background: radial-gradient(circle at top left, #dbeafe 0, transparent 30rem), linear-gradient(135deg, #f8fafc 0%, var(--bg) 100%); color: var(--text); }
-    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 2rem 0 3rem; }
-    .hero { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; padding: 1.5rem; background: #ffffffcc; border: 1px solid #fff; border-radius: 24px; box-shadow: var(--shadow); backdrop-filter: blur(10px); }
-    .hero h1 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.6rem); letter-spacing: -.04em; }
-    .hero p { margin: .35rem 0 0; color: var(--muted); }
-    .logout { color: var(--primary); font-weight: 700; text-decoration: none; }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-    .two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    section { background: var(--card); border: 1px solid #e0e7ff; border-radius: 18px; padding: 1.25rem; box-shadow: var(--shadow); }
-    h2 { margin: 0 0 .35rem; font-size: 1.15rem; }
-    label { display: block; margin: .85rem 0 .3rem; font-weight: 700; font-size: .92rem; }
-    input, textarea { width: 100%; padding: .72rem .78rem; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; transition: border-color .15s, box-shadow .15s; }
-    input:focus, textarea:focus { outline: 0; border-color: var(--primary); box-shadow: 0 0 0 4px #2563eb22; }
-    textarea { min-height: 8rem; resize: vertical; }
-    button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; background: var(--primary); color: white; border: 0; padding: .62rem .95rem; border-radius: 10px; cursor: pointer; margin-top: .75rem; font-weight: 700; transition: transform .12s, background .12s, opacity .12s; }
-    button:hover { background: var(--primary-dark); transform: translateY(-1px); }
-    button:disabled { opacity: .65; cursor: wait; transform: none; }
-    button.secondary { background: #475569; }
-    button.danger { background: var(--danger); }
-    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; margin-top: .85rem; }
-    table { width: 100%; border-collapse: collapse; min-width: 760px; }
-    th { background: #f8fafc; color: #475569; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
-    th, td { border-bottom: 1px solid var(--line); padding: .72rem; text-align: left; vertical-align: top; }
-    tbody tr:hover { background: #f8fafc; }
-    tbody tr:last-child td { border-bottom: 0; }
-    code { background: #f1f5f9; color: #0f172a; padding: .18rem .38rem; border-radius: 6px; white-space: nowrap; }
-    .msg { color: var(--success); font-weight: 700; }
-    .muted { color: var(--muted); font-size: .92rem; }
-    .row-actions { display: flex; gap: .45rem; flex-wrap: wrap; }
-    .inline-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: .6rem; }
-    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
-    .toast { position: fixed; right: 1rem; bottom: 1rem; max-width: min(420px, calc(100vw - 2rem)); padding: .85rem 1rem; border-radius: 12px; background: #0f172a; color: #fff; box-shadow: var(--shadow); opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .18s, transform .18s; z-index: 10; }
-    .toast.show { opacity: 1; transform: translateY(0); }
-    .toast.error { background: #991b1b; }
-    @media (max-width: 820px) { main { width: min(100% - 20px, 1180px); padding-top: 1rem; } .hero, .toolbar { align-items: flex-start; flex-direction: column; } .two-col, .inline-fields { grid-template-columns: 1fr; } }
+    :root {
+      --bg:#FAF9F5; --card:#fff; --fg:#000; --fg-muted:#666; --fg-subtle:#999;
+      --border:#e5e5e5; --radius:6px; --radius-xl:14px;
+      --success:#059669; --success-bg:#ecfdf5; --error:#dc2626; --error-bg:#fef2f2;
+      --shadow-md:0 4px 16px rgba(0,0,0,.08); --shadow-lg:0 20px 50px rgba(0,0,0,.08);
+      --font-sans:'Geist Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-sans);background:var(--bg);color:var(--fg);line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+    a{color:inherit;text-decoration:none}
+    button,input,textarea,select{font:inherit;border:none;outline:none;background:none;color:inherit}
+    button{cursor:pointer}
+
+    /* ── Header ── */
+    .admin-header{background:#FAF9F5;position:fixed;top:0;left:0;right:0;z-index:100}
+    .admin-header-inner{max-width:1280px;width:100%;height:54px;margin:0 auto;padding:0 28px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+    .admin-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;white-space:nowrap}
+    .admin-brand svg{width:16px;height:16px}
+    .admin-header-right{display:flex;align-items:center;gap:8px}
+    .admin-header-right a{font-size:13px;color:var(--fg-muted);font-weight:500;transition:color .15s}
+    .admin-header-right a:hover{color:var(--fg)}
+
+    /* ── Layout ── */
+    .admin-main{max-width:1280px;margin:0 auto;padding:78px 28px 24px}
+    .page-hd{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+    .page-title{font-size:22px;font-weight:700;line-height:1.2}
+    .page-sub{font-size:13px;color:var(--fg-muted);margin-top:5px}
+    .page-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+
+    /* ── Stats ── */
+    .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+    @media(max-width:820px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:480px){.stat-grid{grid-template-columns:1fr}}
+    .stat-cell{min-height:80px;padding:14px 16px;border-radius:12px;background:var(--card);display:flex;flex-direction:column;gap:10px}
+    .stat-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .stat-label{font-size:11px;color:var(--fg-subtle);letter-spacing:.01em;white-space:nowrap}
+    .stat-icon{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;color:#a3a3a3;flex:0 0 auto}
+    .stat-icon svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .stat-num{font-size:22px;font-weight:600;line-height:1;letter-spacing:-.02em;margin-top:auto}
+
+    /* ── Section heading ── */
+    .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:28px 0 14px}
+    .section-title{font-size:13px;font-weight:600;color:#222;letter-spacing:.01em}
+    .section-title-row{display:inline-flex;align-items:center;gap:8px}
+    .section-count-badge{min-width:20px;height:20px;padding:0 7px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#f1ece2;color:#6a6459;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+
+    /* ── Cards ── */
+    .card{background:var(--card);border-radius:var(--radius-xl);padding:20px;box-shadow:var(--shadow-md)}
+    .card+.card{margin-top:16px}
+    .card h3{font-size:14px;font-weight:600;margin-bottom:4px}
+    .card-desc{font-size:12px;color:var(--fg-muted);margin-bottom:14px}
+    .card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media(max-width:820px){.card-grid{grid-template-columns:1fr}}
+
+    /* ── Form ── */
+    .form-group{margin-bottom:12px}
+    .form-label{display:block;font-size:12px;font-weight:600;color:var(--fg-muted);margin-bottom:5px}
+    .form-input{width:100%;height:34px;padding:0 10px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--card);transition:border-color .15s}
+    .form-input:focus{border-color:#bbb;box-shadow:0 0 0 2px rgba(0,0,0,.04)}
+    .form-input::placeholder{color:var(--fg-subtle)}
+    textarea.form-input{min-height:100px;padding:10px;resize:vertical;height:auto}
+    .form-hint{font-size:11px;color:var(--fg-subtle);margin-top:4px}
+
+    /* ── Buttons ── */
+    .btn{height:32px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:opacity .15s;white-space:nowrap}
+    .btn-primary{background:var(--fg);color:var(--card)}
+    .btn-primary:hover{opacity:.88}
+    .btn-secondary{background:#f5f5f5;color:#444}
+    .btn-secondary:hover{background:#eee}
+    .btn-danger{background:#fef2f2;color:#b42318}
+    .btn-danger:hover{background:#feeceb}
+    .btn-sm{height:28px;padding:0 12px;font-size:12px;border-radius:6px}
+    .btn:disabled{opacity:.5;cursor:default}
+
+    /* ── Table ── */
+    .table-card{background:var(--card);border-radius:var(--radius-xl);overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .table-card table{width:100%;border-collapse:collapse;min-width:700px}
+    .table-card th{font-size:11px;font-weight:500;color:var(--fg-subtle);padding:11px 16px;text-align:left;letter-spacing:.01em;white-space:nowrap}
+    .table-card th:last-child{text-align:right}
+    .table-card td{font-size:13px;padding:13px 16px;vertical-align:middle;color:#3f3f3f}
+    .table-card tr:hover td{background:#fdfdfd}
+    .table-card .token-cell{font-family:ui-monospace,monospace;font-size:12px;color:#333}
+    .table-card .badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:500}
+    .badge-ok{color:#3e8f69;background:#f2f8f4}
+    .badge-fail{color:#b66a63;background:#fbf3f2}
+    .badge-unknown{color:#6f675d;background:#f1ece4}
+    .badge-testing{color:#b47a3d;background:#fbf5ed}
+    .row-actions{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+
+    /* ── Inline edit fields ── */
+    .inline-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+    .inline-grid .form-group{margin-bottom:0}
+    @media(max-width:900px){.inline-grid{grid-template-columns:1fr}}
+
+    /* ── Code block ── */
+    .code-block{background:#f7f7f7;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:ui-monospace,monospace;font-size:12px;overflow-x:auto;line-height:1.6;color:#333;margin-top:8px}
+
+    /* ── Toast ── */
+    .toast-container{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:10px;pointer-events:none;align-items:center}
+    .toast{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;align-items:center;gap:10px;min-width:280px;max-width:420px;pointer-events:auto;box-shadow:var(--shadow-md);animation:toastIn .3s cubic-bezier(.16,1,.3,1) forwards}
+    .toast.out{animation:toastOut .2s ease forwards}
+    .toast-icon{flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+    .toast-success .toast-icon{background:var(--success-bg);color:var(--success)}
+    .toast-error .toast-icon{background:var(--error-bg);color:var(--error)}
+    .toast-content{flex:1;font-size:12px;font-weight:500}
+    @keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
+    @keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateY(8px) scale(.96)}}
+
+    @media(max-width:820px){.admin-main{padding:70px 16px 20px}.admin-header-inner{padding:0 16px}.page-hd{flex-direction:column;gap:10px}}
   </style>
 </head>
-<body><main>
-  <div class="hero">
+<body>
+
+<!-- ── Header ── -->
+<div class="admin-header">
+  <div class="admin-header-inner">
+    <div class="admin-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      Gemini Router
+    </div>
+    <div class="admin-header-right">
+      <a href="/logout">退出登录</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main ── -->
+<main class="admin-main">
+
+  <!-- Toast container -->
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
+
+  <!-- Page heading -->
+  <div class="page-hd">
     <div>
-      <h1>Gemini Router 管理</h1>
-      <p>统一管理 Gemini Key、代理设置、请求日志与自动清理策略。</p>
+      <div class="page-title">Gemini Router 管理</div>
+      <div class="page-sub">管理 Gemini Key、代理设置与请求日志</div>
     </div>
-    <a class="logout" href="/logout">退出登录</a>
+    <div class="page-actions">
+      <form method="post" action="/admin/keys/test-all" data-ajax data-refresh="true">
+        <button class="btn btn-secondary btn-sm">测试全部 Key</button>
+      </form>
+    </div>
   </div>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  {{if .Msg}}<p class="msg">{{.Msg}}</p>{{end}}
 
-  <div class="grid two-col">
-    <section>
-      <h2>项目配置</h2>
-      <p class="muted">项目 API Key 用于访问代理接口，也用于登录管理页。留空表示不鉴权。</p>
+  <!-- Stats -->
+  <div class="stat-grid" id="stats-grid">
+    <div class="stat-cell" data-stat="total">
+      <div class="stat-top">
+        <div class="stat-label">Key 总数</div>
+        <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M4 19a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4"/><circle cx="12" cy="8" r="4"/></svg></span>
+      </div>
+      <div class="stat-num" id="s-total">{{len .Config.GeminiKeys}}</div>
+    </div>
+    <div class="stat-cell" data-stat="active">
+      <div class="stat-top">
+        <div class="stat-label">正常</div>
+        <span class="stat-icon" style="color:#16a34a"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.4 2.4 4.8-4.8"/></svg></span>
+      </div>
+      <div class="stat-num" id="s-active" style="color:#16a34a">0</div>
+    </div>
+    <div class="stat-cell" data-stat="failed">
+      <div class="stat-top">
+        <div class="stat-label">异常</div>
+        <span class="stat-icon" style="color:#dc2626"><svg viewBox="0 0 24 24"><path d="m15 9-6 6m0-6 6 6"/><circle cx="12" cy="12" r="8"/></svg></span>
+      </div>
+      <div class="stat-num" id="s-failed" style="color:#dc2626">0</div>
+    </div>
+    <div class="stat-cell" data-stat="untested">
+      <div class="stat-top">
+        <div class="stat-label">未测试</div>
+        <span class="stat-icon" style="color:#6f675d"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2 2"/></svg></span>
+      </div>
+      <div class="stat-num" id="s-untested" style="color:#6f675d">0</div>
+    </div>
+  </div>
+
+  <!-- Project Config + Add Key -->
+  <div class="card-grid">
+    <div class="card">
+      <h3>项目配置</h3>
+      <p class="card-desc">API Key 用于代理接口鉴权与登录管理页，留空则不鉴权。</p>
       <form method="post" action="/admin/project" data-ajax data-refresh="true">
-        <label>项目 API Key</label>
-        <input name="project_api_key" value="{{.Config.ProjectAPIKey}}" placeholder="例如 my-router-secret">
-        <label>项目默认 SOCKS5 代理</label>
-        <input name="project_proxy" value="{{.Config.ProjectProxy}}" placeholder="socks5://127.0.0.1:1080">
-        <label>官方 API 出错自动重试次数</label>
-        <input type="number" name="auto_retry" value="{{.Config.AutoRetry}}" min="0" max="5" step="1">
-        <p class="muted">默认 0，范围 0-5；每次重试会自动切换到下一个可用 Gemini Key。</p>
-        <button>保存项目配置</button>
+        <div class="form-group">
+          <label class="form-label">项目 API Key</label>
+          <input class="form-input" name="project_api_key" value="{{.Config.ProjectAPIKey}}" placeholder="例如 my-router-secret">
+        </div>
+        <div class="form-group">
+          <label class="form-label">默认 SOCKS5 代理</label>
+          <input class="form-input" name="project_proxy" value="{{.Config.ProjectProxy}}" placeholder="socks5://127.0.0.1:1080">
+        </div>
+        <div class="form-group">
+          <label class="form-label">自动重试次数</label>
+          <input class="form-input" type="number" name="auto_retry" value="{{.Config.AutoRetry}}" min="0" max="5" step="1">
+          <p class="form-hint">每次重试自动切到下一个可用 Key，范围 0-5</p>
+        </div>
+        <button class="btn btn-primary">保存项目配置</button>
       </form>
-    </section>
+    </div>
 
-    <section>
-      <h2>添加 Gemini Key</h2>
+    <div class="card">
+      <h3>添加 Gemini Key</h3>
+      <p class="card-desc">支持批量添加，每行一个 Key。</p>
       <form method="post" action="/admin/keys/add" data-ajax data-refresh="true" data-reset="true">
-        <label>Gemini API Key（每行一个，支持批量添加）</label>
-        <textarea name="keys" placeholder="AIza...&#10;AIza..."></textarea>
-        <label>这些 Key 的备注（可选）</label>
-        <input name="remark" placeholder="例如 生产环境、备用 Key、来源账号">
-        <label>这些 Key 的单独 SOCKS5 代理（可选）</label>
-        <input name="proxy" placeholder="socks5://user:pass@host:1080">
-        <button>添加 Key</button>
+        <div class="form-group">
+          <label class="form-label">Gemini API Key</label>
+          <textarea class="form-input" name="keys" placeholder="AIza...&#10;AIza..." style="min-height:80px"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">备注（可选）</label>
+          <input class="form-input" name="remark" placeholder="例如 生产环境、备用 Key">
+        </div>
+        <div class="form-group">
+          <label class="form-label">单独 SOCKS5 代理（可选）</label>
+          <input class="form-input" name="proxy" placeholder="socks5://user:pass@host:1080">
+        </div>
+        <button class="btn btn-primary">添加 Key</button>
       </form>
-    </section>
+    </div>
   </div>
 
-  <section>
-    <div class="toolbar">
-      <div>
-        <h2>Gemini Key 管理</h2>
-        <p class="muted">保存、测试和删除操作将通过 Ajax 完成，不会整页刷新。</p>
-      </div>
-      <form method="post" action="/admin/keys/test-all" data-ajax data-refresh="true"><button class="secondary">测试全部 Key</button></form>
+  <!-- Key Table -->
+  <div class="section-head" style="margin-top:32px">
+    <div class="section-title-row">
+      <div class="section-title">Gemini Key 管理</div>
+      <span class="section-count-badge" id="key-count">{{len .Config.GeminiKeys}}</span>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Key</th><th>配置</th><th>测试状态</th><th>操作</th></tr></thead>
-        <tbody>
-        {{range .Config.GeminiKeys}}
-        <tr>
-          <td>{{.ID}}</td>
-          <td><code>{{mask .Key}}</code></td>
-          <td>
-            <form id="key-update-{{.ID}}" method="post" action="/admin/keys/update" data-ajax data-refresh="true">
-              <input type="hidden" name="id" value="{{.ID}}">
-              <div class="inline-fields">
-                <div><label>名称</label><input name="name" value="{{.Name}}"></div>
-                <div><label>备注</label><input name="remark" value="{{.Remark}}" placeholder="可填写用途或来源"></div>
-                <div><label>SOCKS5 代理</label><input name="proxy" value="{{.Proxy}}" placeholder="留空使用项目默认代理"></div>
-              </div>
-            </form>
-          </td>
-          <td>{{testStatus .}}</td>
-          <td class="row-actions">
-            <button form="key-update-{{.ID}}">保存</button>
-            <form method="post" action="/admin/keys/test" data-ajax data-refresh="true"><input type="hidden" name="id" value="{{.ID}}"><button class="secondary">测试</button></form>
-            <form method="post" action="/admin/keys/delete" data-ajax data-refresh="true" data-confirm="确认删除？"><input type="hidden" name="id" value="{{.ID}}"><button class="danger">删除</button></form>
-          </td>
-        </tr>
-        {{else}}
-        <tr><td colspan="5">暂无 Gemini Key</td></tr>
-        {{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
+  </div>
 
-  <section>
-    <div class="toolbar">
-      <div>
-        <h2>请求日志</h2>
-        <p class="muted">记录最近代理请求；敏感查询参数会被脱敏。</p>
-      </div>
-      <form method="post" action="/admin/logs/clear" data-ajax data-refresh="true" data-confirm="确认清空全部请求日志？"><button class="danger">清空请求日志</button></form>
-    </div>
-    <form method="post" action="/admin/logs/retention" data-ajax data-refresh="true">
-      <label>日志保留天数（0 表示不自动清理，最大 365）</label>
-      <input type="number" name="log_retention_day" value="{{.Config.LogRetentionDay}}" min="0" max="365" step="1">
-      <button>保存清理策略</button>
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr><th>Key</th><th>名称</th><th>备注</th><th>代理</th><th>状态</th><th style="text-align:right">操作</th></tr>
+      </thead>
+      <tbody>
+      {{range .Config.GeminiKeys}}
+      <tr>
+        <td>
+          <span class="token-cell">{{mask .Key}}</span>
+        </td>
+        <td>
+          <form id="key-update-{{.ID}}" method="post" action="/admin/keys/update" data-ajax data-refresh="true">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input class="form-input" name="name" value="{{.Name}}" placeholder="名称" style="width:100%;min-width:80px;height:28px;font-size:12px;padding:0 8px">
+          </form>
+        </td>
+        <td>
+          <input class="form-input" form="key-update-{{.ID}}" name="remark" value="{{.Remark}}" placeholder="用途/来源" style="width:100%;min-width:80px;height:28px;font-size:12px;padding:0 8px">
+        </td>
+        <td>
+          <input class="form-input" form="key-update-{{.ID}}" name="proxy" value="{{.Proxy}}" placeholder="留空默认" style="width:100%;min-width:100px;height:28px;font-size:12px;padding:0 8px">
+        </td>
+        <td>{{testStatus .}}</td>
+        <td class="row-actions">
+          <button class="btn btn-secondary btn-sm" form="key-update-{{.ID}}">保存</button>
+          <form method="post" action="/admin/keys/test" data-ajax data-refresh="true"><input type="hidden" name="id" value="{{.ID}}"><button class="btn btn-secondary btn-sm">测试</button></form>
+          <form method="post" action="/admin/keys/delete" data-ajax data-refresh="true" data-confirm="确认删除此 Key？"><input type="hidden" name="id" value="{{.ID}}"><button class="btn btn-danger btn-sm">删除</button></form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" style="text-align:center;padding:40px 16px;color:var(--fg-subtle);font-size:13px">暂无 Gemini Key</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Logs -->
+  <div class="section-head" style="margin-top:32px">
+    <div class="section-title">请求日志</div>
+    <form method="post" action="/admin/logs/clear" data-ajax data-refresh="true" data-confirm="确认清空全部请求日志？">
+      <button class="btn btn-danger btn-sm">清空日志</button>
     </form>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>时间</th><th>方法</th><th>路径</th><th>客户端 IP</th><th>状态</th><th>Key</th><th>重试</th><th>耗时</th><th>错误</th></tr></thead>
-        <tbody>
-        {{range .Logs}}
-        <tr>
-          <td>{{.Time}}</td>
-          <td>{{.Method}}</td>
-          <td><code>{{.Path}}</code></td>
-          <td>{{.ClientIP}}</td>
-          <td>{{.StatusCode}}</td>
-          <td>{{.KeyName}}</td>
-          <td>{{.Attempts}}</td>
-          <td>{{.DurationMS}} ms</td>
-          <td>{{.Error}}</td>
-        </tr>
-        {{else}}
-        <tr><td colspan="9">暂无请求日志</td></tr>
-        {{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
+  </div>
 
-  <section>
-    <h2>代理调用示例</h2>
-    <pre><code>curl -H 'X-API-Key: {{.Config.ProjectAPIKey}}' \
-  http://localhost:8080/v1beta/models</code></pre>
-  </section>
+  <div class="card" style="margin-bottom:16px">
+    <form method="post" action="/admin/logs/retention" data-ajax data-refresh="true" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <label class="form-label" style="margin:0;white-space:nowrap">日志保留天数</label>
+      <input class="form-input" type="number" name="log_retention_day" value="{{.Config.LogRetentionDay}}" min="0" max="365" step="1" style="width:80px;height:28px;font-size:12px;padding:0 8px">
+      <p class="form-hint" style="margin:0">0 表示不自动清理</p>
+      <button class="btn btn-secondary btn-sm">保存</button>
+    </form>
+  </div>
+
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr><th>时间</th><th>方法</th><th>路径</th><th>客户端 IP</th><th>状态</th><th>Key</th><th>重试</th><th>耗时</th><th>错误</th></tr>
+      </thead>
+      <tbody>
+      {{range .Logs}}
+      <tr>
+        <td style="white-space:nowrap;font-size:12px">{{.Time}}</td>
+        <td><span class="token-cell">{{.Method}}</span></td>
+        <td><span class="token-cell">{{.Path}}</span></td>
+        <td style="font-size:12px">{{.ClientIP}}</td>
+        <td><span class="badge {{if eq .StatusCode 200}}badge-ok{{else if eq .StatusCode 0}}badge-unknown{{else}}badge-fail{{end}}">{{.StatusCode}}</span></td>
+        <td style="font-size:12px">{{.KeyName}}</td>
+        <td style="font-size:12px">{{.Attempts}}</td>
+        <td style="font-size:12px;white-space:nowrap">{{.DurationMS}} ms</td>
+        <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis">{{.Error}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="9" style="text-align:center;padding:40px 16px;color:var(--fg-subtle);font-size:13px">暂无请求日志</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- API Example -->
+  <div class="section-head" style="margin-top:32px">
+    <div class="section-title">代理调用示例</div>
+  </div>
+  <div class="code-block">curl -H 'X-API-Key: {{.Config.ProjectAPIKey}}' \
+  http://localhost:8080/v1beta/models</div>
+
 </main>
+
 <script>
-(function () {
-  function toast(message, isError) {
-    const el = document.getElementById('toast');
-    if (!el) return;
-    el.textContent = message;
-    el.classList.toggle('error', Boolean(isError));
-    el.classList.add('show');
-    window.clearTimeout(el._timer);
-    el._timer = window.setTimeout(() => el.classList.remove('show'), 2400);
+(function() {
+  /* ── Toast system ── */
+  const container = document.getElementById('toast-container');
+  let toastId = 0;
+
+  function showToast(message, type) {
+    type = type || 'success';
+    const id = ++toastId;
+    const icon = type === 'success'
+      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.dataset.tid = id;
+    el.innerHTML = '<span class="toast-icon">' + icon + '</span><span class="toast-content">' + escapeHtml(message) + '</span>';
+    container.appendChild(el);
+    window.setTimeout(function() {
+      el.classList.add('out');
+      window.setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+    }, 2500);
   }
 
+  function escapeHtml(s) {
+    if (typeof s !== 'string') return String(s || '');
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Refresh page content ── */
   async function refreshMain() {
     const resp = await fetch('/admin', { headers: { 'X-Requested-With': 'fetch' } });
-    if (!resp.ok) throw new Error('刷新页面数据失败');
+    if (!resp.ok) throw new Error('刷新页面数据失败: ' + resp.status);
     const html = await resp.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const nextMain = doc.querySelector('main');
-    const main = document.querySelector('main');
+    const nextMain = doc.querySelector('.admin-main');
+    const main = document.querySelector('.admin-main');
     if (nextMain && main) main.innerHTML = nextMain.innerHTML;
   }
 
-  document.addEventListener('submit', async function (event) {
-    const form = event.target.closest('form[data-ajax]');
+  /* ── Stats updater ── */
+  function computeStats() {
+    const table = document.querySelector('.table-card table tbody');
+    if (!table) return;
+    const rows = table.querySelectorAll('tr');
+    if (rows.length === 0 || (rows.length === 1 && rows[0].querySelector('td') && rows[0].querySelector('td').colSpan > 1)) {
+      document.getElementById('s-total').textContent = '0';
+      document.getElementById('s-active').textContent = '0';
+      document.getElementById('s-failed').textContent = '0';
+      document.getElementById('s-untested').textContent = '0';
+      return;
+    }
+    let total = 0, active = 0, failed = 0, untested = 0;
+    rows.forEach(function(tr) {
+      const statusCell = tr.querySelectorAll('td')[4];
+      if (!statusCell) return;
+      const text = statusCell.textContent.trim();
+      total++;
+      if (text === '正常' || text === '可用') active++;
+      else if (text === '失败' || text === '异常' || text === '不可用') failed++;
+      else untested++;
+    });
+    document.getElementById('s-total').textContent = total;
+    document.getElementById('s-active').textContent = active;
+    document.getElementById('s-failed').textContent = failed;
+    document.getElementById('s-untested').textContent = untested;
+    var countEl = document.getElementById('key-count');
+    if (countEl) countEl.textContent = total;
+  }
+
+  /* ── Form AJAX submission ── */
+  document.addEventListener('submit', async function(event) {
+    var form = event.target.closest('form[data-ajax]');
     if (!form) return;
     event.preventDefault();
-    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
-    const submitter = event.submitter || form.querySelector('button');
+    var msg = form.dataset.confirm;
+    if (msg && !window.confirm(msg)) return;
+    var submitter = event.submitter || form.querySelector('.btn, button');
     if (submitter) submitter.disabled = true;
     try {
-      const resp = await fetch(form.action, {
+      var resp = await fetch(form.action, {
         method: form.method || 'POST',
         body: new FormData(form),
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch' }
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.message || '操作失败');
+      var data = {};
+      try { data = await resp.json(); } catch(e) {}
+      if (!resp.ok) throw new Error(data.message || '请求失败 (' + resp.status + ')');
       if (form.dataset.reset === 'true') form.reset();
       if (form.dataset.refresh === 'true') await refreshMain();
-      toast(data.message || '操作已完成');
-    } catch (err) {
-      toast(err.message || '操作失败', true);
+      showToast(data.message || '操作成功', 'success');
+      computeStats();
+    } catch(err) {
+      showToast(err.message || '操作失败', 'error');
     } finally {
       if (submitter) submitter.disabled = false;
     }
   });
+
+  /* ── Initial stats ── */
+  window.setTimeout(computeStats, 100);
 })();
 </script>
-</body></html>`
+</body>
+</html>`
 
-const loginHTML = `<!doctype html>
+const loginHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gemini Router 登录</title>
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f7f7fb; color: #1f2937; }
-    main { width: min(92vw, 420px); background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px #0001; }
-    label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
-    input { width: 100%; box-sizing: border-box; padding: .65rem; border: 1px solid #d1d5db; border-radius: 8px; }
-    button { width: 100%; background: #2563eb; color: white; border: 0; padding: .7rem .9rem; border-radius: 8px; cursor: pointer; margin-top: 1rem; }
-    .msg { color: #dc2626; font-weight: 600; }
-    .muted { color: #6b7280; font-size: .92rem; }
+    :root{--bg-card:#fff;--fg:#000;--fg-muted:#666;--fg-subtle:#999;--border:#e5e5e5;--radius-xl:14px;--shadow-lg:0 20px 50px rgba(0,0,0,.08);--font-sans:'Geist Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-sans);min-height:100vh;display:flex;align-items:center;justify-content:center;background:#FAF9F5;-webkit-font-smoothing:antialiased}
+    .login-shell{width:min(420px,92vw);padding:24px}
+    .login-card{background:var(--bg-card);border:1px solid transparent;border-radius:var(--radius-xl);padding:22px;box-shadow:var(--shadow-lg);transition:border-color .2s}
+    .login-card:hover{border-color:var(--fg)}
+    .login-brand{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted);font-weight:600}
+    .login-brand svg{width:14px;height:14px}
+    .login-title{margin-top:8px;font-size:18px;font-weight:600}
+    .login-subtitle{margin-top:4px;font-size:12px;color:var(--fg-muted)}
+    .login-form{margin-top:18px;display:grid;gap:10px}
+    .input{width:100%;height:34px;padding:0 10px;font-size:13px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);transition:border-color .15s}
+    .input:focus{border-color:#bbb;box-shadow:0 0 0 2px rgba(0,0,0,.04)}
+    .input::placeholder{color:var(--fg-subtle)}
+    .btn{height:34px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;transition:opacity .15s;white-space:nowrap;width:100%}
+    .btn-primary{background:var(--fg);color:var(--bg-card)}
+    .btn-primary:hover{opacity:.88}
+    .msg-error{font-size:12px;color:#dc2626;font-weight:500;text-align:center;padding:6px 0 0}
   </style>
 </head>
-<body><main>
-  <h1>Gemini Router 登录</h1>
-  <p class="muted">请输入项目 API Key 进入管理页面。</p>
-  {{if .Msg}}<p class="msg">项目 API Key 不正确，请重试。</p>{{end}}
-  <form method="post" action="/login">
-    <label>项目 API Key</label>
-    <input type="password" name="project_api_key" autocomplete="current-password" autofocus required>
-    <button>登录</button>
-  </form>
-</main></body></html>`
+<body>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="login-brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        Gemini Router
+      </div>
+      <div class="login-title">管理后台</div>
+      <div class="login-subtitle">请输入项目 API Key 以继续</div>
+      {{if .Msg}}<div class="msg-error">项目 API Key 不正确，请重试</div>{{end}}
+      <form class="login-form" method="post" action="/login">
+        <input class="input" type="password" name="project_api_key" placeholder="后台密码" autocomplete="current-password" autofocus required>
+        <button class="btn btn-primary">继续</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>`
