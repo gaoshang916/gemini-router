@@ -437,6 +437,11 @@ func (a *App) handleAdminAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Handle both multipart/form-data (AJAX fetch with FormData) and URL-encoded forms
+	if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
