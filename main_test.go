@@ -23,6 +23,7 @@ func newTestApp(t *testing.T, projectAPIKey string) *App {
 	}
 	return &App{
 		store:          store,
+		logStore:       NewRequestLogStore(filepath.Join(t.TempDir(), "request_logs.jsonl")),
 		geminiEndpoint: "http://127.0.0.1",
 		requestTimeout: 5 * time.Second,
 		adminTemplate: template.Must(template.New("admin").Funcs(template.FuncMap{
@@ -201,5 +202,96 @@ func TestRemoveHopByHopHeaders(t *testing.T) {
 	}
 	if got := h.Get("X-Keep"); got != "keep-me" {
 		t.Fatalf("X-Keep = %q, want keep-me", got)
+	}
+}
+
+func TestProxyWritesRequestLog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	app := newTestApp(t, "secret")
+	app.geminiEndpoint = upstream.URL
+	if err := app.store.AddKeys([]string{"gemini-key"}, "", ""); err != nil {
+		t.Fatalf("AddKeys: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models?key=client-secret&alt=json", nil)
+	req.Header.Set("X-API-Key", "secret")
+	req.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
+	rr := httptest.NewRecorder()
+
+	app.handleProxy(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	logs, err := app.logStore.Recent(10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("logs length = %d, want 1", len(logs))
+	}
+	got := logs[0]
+	if got.Method != http.MethodGet || got.StatusCode != http.StatusOK || got.KeyName != "key-1" || got.Attempts != 1 {
+		t.Fatalf("log = %#v, want successful request metadata", got)
+	}
+	if got.ClientIP != "203.0.113.7" {
+		t.Fatalf("ClientIP = %q, want forwarded IP", got.ClientIP)
+	}
+	if strings.Contains(got.Path, "client-secret") || !strings.Contains(got.Path, "key=REDACTED") {
+		t.Fatalf("Path = %q, want redacted key", got.Path)
+	}
+}
+
+func TestRequestLogCleanupHonorsRetention(t *testing.T) {
+	store := NewRequestLogStore(filepath.Join(t.TempDir(), "request_logs.jsonl"))
+	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if err := store.Append(RequestLog{Time: now.Add(-48 * time.Hour).Format(time.RFC3339), Path: "/old"}); err != nil {
+		t.Fatalf("Append old: %v", err)
+	}
+	if err := store.Append(RequestLog{Time: now.Add(-12 * time.Hour).Format(time.RFC3339), Path: "/new"}); err != nil {
+		t.Fatalf("Append new: %v", err)
+	}
+	if err := store.Cleanup(1, now); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	logs, err := store.Recent(10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Path != "/new" {
+		t.Fatalf("logs = %#v, want only new log", logs)
+	}
+}
+
+func TestAdminActionReturnsJSONForAjax(t *testing.T) {
+	app := newTestApp(t, "secret")
+	form := url.Values{
+		"project_api_key": {"secret"},
+		"project_proxy":   {""},
+		"auto_retry":      {"2"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/project", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-API-Key", "secret")
+	rr := httptest.NewRecorder()
+
+	app.handleAdminAction(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if !strings.Contains(rr.Body.String(), `"status":"ok"`) {
+		t.Fatalf("body = %q, want ok JSON", rr.Body.String())
+	}
+	if got := app.store.Snapshot().AutoRetry; got != 2 {
+		t.Fatalf("AutoRetry = %d, want 2", got)
 	}
 }
